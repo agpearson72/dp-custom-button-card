@@ -2,7 +2,11 @@
  * DP Custom Button Card
  * A high-fidelity, advanced Home Assistant Lovelace card converted from custom:button-card templates.
  * Supports glow filters, complex light color maps (including Twinkly blends), climate variants, and dynamic CSS rain animations.
+ * v1.2.0
  */
+
+// Cache of compiled [[[ ]]] template bodies, keyed by source code, shared across all card instances.
+const _templateFnCache = new Map();
 
 class DPCustomButtonCard extends HTMLElement {
   constructor() {
@@ -28,6 +32,7 @@ class DPCustomButtonCard extends HTMLElement {
         icon_name: null,
         icon_on: null,
         icon_off: null,
+        icon_align: 'center', // 'center', 'left', or 'right'
         glow_for_non_lights: true,
         glow_non_light_color: 'var(--accent-color)',
         glow_non_light_opacity: 0.35,
@@ -54,6 +59,14 @@ class DPCustomButtonCard extends HTMLElement {
         weather_rain_drops: 16,
         weather_rain_speed: 1.2,
         weather_disable_base_glow: true,
+        // Font sizing parameters
+        icon_size_css: 'clamp(18px, 5.5vw, 26px)',
+        name_font_css: '14px',
+        state_font_css: '12px',
+        temp_font_css: 'clamp(20px, 7.0vw, 38px)',
+        set_font_css: 'clamp(10px, 2.8vw, 14px)',
+        sub_font_css: 'clamp(10px, 2.4vw, 13px)',
+        label_font_css: '11px',
         // Climate defaults
         ambient_sensor: null,
         show_setpoint: true,
@@ -68,11 +81,6 @@ class DPCustomButtonCard extends HTMLElement {
         off_color: 'rgba(255,255,255,0.04)',
         unavailable_color: '#777',
         bg_tint_alpha: 0.18,
-        icon_size_css: 'clamp(18px, 5.5vw, 26px)',
-        name_font_css: 'clamp(12px, 3.2vw, 16px)',
-        temp_font_css: 'clamp(20px, 7.0vw, 38px)',
-        set_font_css: 'clamp(10px, 2.8vw, 14px)',
-        sub_font_css: 'clamp(10px, 2.4vw, 13px)',
         ...(config.variables || {})
       },
       twinkly_effect_map: {
@@ -116,12 +124,73 @@ class DPCustomButtonCard extends HTMLElement {
       return;
     }
 
-    this.render(entity, hass.states);
+    this.render(entity, hass.states, hass);
   }
 
-  render(entity, states) {
-    const config = this._config;
-    const vars = config.variables;
+  // --- [[[ ]]] Template Engine (original button-card syntax) ---
+  _resolveTemplates(value, ctx) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.startsWith('[[[') && trimmed.endsWith(']]]')) {
+        const code = trimmed.slice(3, -3);
+        let fn = _templateFnCache.get(code);
+        if (!fn) {
+          try {
+            fn = new Function('entity', 'states', 'hass', 'variables', 'user', 'config', code);
+          } catch (e) {
+            console.error('DP Custom Button Card: template compile error', e, code);
+            fn = () => undefined;
+          }
+          _templateFnCache.set(code, fn);
+        }
+        try {
+          return fn(ctx.entity, ctx.states, ctx.hass, ctx.variables, ctx.user, ctx.config);
+        } catch (e) {
+          console.error('DP Custom Button Card: template eval error', e, code);
+          return undefined;
+        }
+      }
+      return value;
+    }
+    if (Array.isArray(value)) return value.map((v) => this._resolveTemplates(v, ctx));
+    if (value && typeof value === 'object') {
+      const out = {};
+      for (const k in value) out[k] = this._resolveTemplates(value[k], ctx);
+      return out;
+    }
+    return value;
+  }
+
+  // --- Per-element `styles:` override builder (original button-card syntax) ---
+  _buildStyleAttr(entries) {
+    if (!Array.isArray(entries)) return '';
+    const parts = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      for (const k in entry) {
+        const val = entry[k];
+        if (val === null || val === undefined || val === '') continue;
+        parts.push(`${k}:${val}`);
+      }
+    }
+    return parts.length ? parts.join(';') + ';' : '';
+  }
+
+  render(entity, states, hass) {
+    const rawConfig = this._config;
+    const ctx = { entity, states, hass, variables: rawConfig.variables, user: hass && hass.user, config: rawConfig };
+    const config = this._resolveTemplates(rawConfig, ctx);
+    const vars = config.variables || {};
+    const styles = config.styles || {};
+    const extraStyles = (typeof config.extra_styles === 'string') ? config.extra_styles : '';
+    const styleCard = this._buildStyleAttr(styles.card);
+    const styleIcon = this._buildStyleAttr(styles.icon);
+    const styleImgCell = this._buildStyleAttr(styles.img_cell);
+    const styleEntityPicture = this._buildStyleAttr(styles.entity_picture);
+    const styleName = this._buildStyleAttr(styles.name);
+    const styleState = this._buildStyleAttr(styles.state);
+    const styleLabel = this._buildStyleAttr(styles.label);
+    const styleBadge = this._buildStyleAttr(styles.badge);
     const stateStr = entity ? entity.state : '';
     const active = entity && ['on', 'open', 'playing'].includes(stateStr);
 
@@ -143,10 +212,18 @@ class DPCustomButtonCard extends HTMLElement {
       }
     }
 
+    // --- Determine Image Source (Manual vs Home Assistant Entity Picture Layouts) ---
+    const wantPicture = (config.show_entity_picture === undefined) ? true : !!config.show_entity_picture;
+    const resolvedPicture = wantPicture
+      ? (config.entity_picture || vars.picture || targetAttrs.entity_picture || null)
+      : null;
+
     // --- Determine Icon ---
     let icon = 'mdi:lightbulb';
     if (config.type === 'weather') {
       icon = this._getWeatherIcon(entity, states, vars);
+    } else if (config.icon) {
+      icon = config.icon;
     } else {
       if (vars.icon_name) icon = vars.icon_name;
       else if (vars.icon_on || vars.icon_off) {
@@ -230,6 +307,11 @@ class DPCustomButtonCard extends HTMLElement {
     const glowStyle = this._computeGlow(entity, targetAttrs, vars, config, stateStr);
     const weatherRainMarkup = (config.type === 'weather') ? this._getWeatherRain(vars, states) : '';
 
+    // --- CSS Position Translation ---
+    let flexAlignment = 'center';
+    if (vars.icon_align === 'left') flexAlignment = 'flex-start';
+    if (vars.icon_align === 'right') flexAlignment = 'flex-end';
+
     // --- Compose HTML Grid layouts ---
     let gridLayout = '';
     if (config.type === 'climate') {
@@ -248,24 +330,29 @@ class DPCustomButtonCard extends HTMLElement {
         subMarkup = stateStr.toUpperCase();
       }
 
+      const labelHiddenClimate = (config.show_label === false || !config.label) ? 'display:none;' : '';
       gridLayout = `
         <div class="grid-container climate">
-          <div class="icon-area"><ha-icon icon="${icon}"></ha-icon></div>
-          <div class="badge-area">${vars.badge ? `<span>${vars.badge}</span>` : ''}</div>
-          <div class="name-area">${config.name || targetAttrs.friendly_name || 'Climate'}</div>
+          <div class="icon-area" style="${styleImgCell}"><ha-icon icon="${icon}" style="${styleIcon}"></ha-icon></div>
+          <div class="badge-area" style="${styleBadge}">${vars.badge ? `<span>${vars.badge}</span>` : ''}</div>
+          <div class="name-area" style="${styleName}">${config.name || targetAttrs.friendly_name || 'Climate'}</div>
           <div class="temp-area">${curTemp}°</div>
           <div class="footer-area">${setpointMarkup} <span class="sub-footer">${subMarkup}</span></div>
+          <div class="label-area" style="${labelHiddenClimate}${styleLabel}">${config.label || ''}</div>
         </div>
       `;
     } else {
+      const stateHidden = (config.show_state === false) ? 'display:none;' : '';
+      const labelHidden = (config.show_label === false || !config.label) ? 'display:none;' : '';
       gridLayout = `
         <div class="grid-container standard">
-          <div class="icon-area">
-            ${vars.picture ? `<img src="${vars.picture}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;"/>` : `<ha-icon icon="${icon}"></ha-icon>`}
+          <div class="icon-area" style="${styleImgCell}">
+            ${resolvedPicture ? `<img src="${resolvedPicture}" class="entity-img" style="${styleEntityPicture}"/>` : `<ha-icon icon="${icon}" style="${styleIcon}"></ha-icon>`}
           </div>
-          <div class="badge-area">${vars.badge ? `<span>${vars.badge}</span>` : ''}</div>
-          <div class="name-area">${config.name || (entity ? entity.attributes.friendly_name : 'Button')}</div>
-          <div class="state-area">${subtitleText}</div>
+          <div class="badge-area" style="${styleBadge}">${vars.badge ? `<span>${vars.badge}</span>` : ''}</div>
+          <div class="name-area" style="${styleName}">${config.name || (entity ? entity.attributes.friendly_name : 'Button')}</div>
+          <div class="state-area" style="${stateHidden}${styleState}">${subtitleText}</div>
+          <div class="label-area" style="${labelHidden}${styleLabel}">${config.label || ''}</div>
           <div class="indicator-area" style="${vars.show_state_dot ? '' : 'display:none;'}"></div>
         </div>
       `;
@@ -304,16 +391,33 @@ class DPCustomButtonCard extends HTMLElement {
           box-sizing: border-box;
         }
         .grid-container.standard {
-          grid-template-areas: "i badge" "n n" "s s" "l l";
+          grid-template-areas: "i badge" "n n" "s s" "label label";
           grid-template-columns: 1fr auto;
           grid-template-rows: auto auto auto 1fr;
         }
         .grid-container.climate {
-          grid-template-areas: "i badge" "n n" "temp temp" "footer footer";
+          grid-template-areas: "i badge" "n n" "temp temp" "footer footer" "label label";
           grid-template-columns: 1fr auto;
-          grid-template-rows: auto auto auto auto;
+          grid-template-rows: auto auto auto auto auto;
         }
-        .icon-area { grid-area: i; position: relative; z-index: 3; display: block; opacity: 1; }
+        .label-area {
+          grid-area: label; justify-self: center; text-align: center; margin-top: 2px;
+          font-size: ${vars.label_font_css}; opacity: 0.85; color: var(--secondary-text-color); z-index: 2;
+        }
+        .icon-area { 
+          grid-area: i; 
+          position: relative; 
+          z-index: 3; 
+          display: flex; 
+          justify-content: ${flexAlignment}; 
+          align-items: center;
+        }
+        .entity-img {
+          width: ${config.size};
+          height: ${config.size};
+          border-radius: 8px;
+          object-fit: cover;
+        }
         ha-icon {
           --mdc-icon-size: ${config.type === 'climate' ? vars.icon_size_css : config.size};
           color: ${iconColor};
@@ -330,9 +434,13 @@ class DPCustomButtonCard extends HTMLElement {
         .name-area {
           grid-area: n; margin-top: 8px; font-weight: 400; justify-self: center; text-align: center;
           color: var(--primary-text-color); z-index: 2;
-          font-size: ${config.type === 'climate' ? vars.name_font_css : 'inherit'};
+          font-size: ${vars.name_font_css};
         }
-        .state-area { grid-area: s; justify-self: center; text-align: center; margin-top: 2px; font-size: 0.82em; opacity: 0.85; color: var(--secondary-text-color); z-index: 2; }
+        .state-area { 
+          grid-area: s; justify-self: center; text-align: center; margin-top: 2px; 
+          font-size: ${vars.state_font_css}; 
+          opacity: 0.85; color: var(--secondary-text-color); z-index: 2; 
+        }
         .temp-area { grid-area: temp; font-size: ${vars.temp_font_css}; line-height: 1; font-weight: 700; letter-spacing: -0.5px; color: var(--primary-text-color); align-self: center; justify-self: center; z-index: 3; }
         .footer-area { grid-area: footer; font-size: ${vars.set_font_css}; opacity: 0.9; color: var(--secondary-text-color); justify-self: center; text-align: center; z-index: 3; }
         .sub-footer { font-size: ${vars.sub_font_css}; block; }
@@ -381,9 +489,12 @@ class DPCustomButtonCard extends HTMLElement {
           70%  { opacity: .20; }
           100% { opacity: 0; width: 28px; height: 12px; }
         }
+
+        /* User-supplied extra_styles (raw CSS) */
+        ${extraStyles}
       </style>
-      
-      <ha-card id="button-surface" style="--rb-rain-color: ${vars.weather_rain_color}">
+
+      <ha-card id="button-surface" style="--rb-rain-color: ${vars.weather_rain_color};${styleCard}">
         <div class="layer gloss-layer"></div>
         <div class="layer underglow-layer"></div>
         <div class="layer glow-layer" style="${config.type === 'weather' && vars.weather_disable_base_glow ? 'display:none;opacity:0;' : ''}"></div>
