@@ -593,12 +593,37 @@ class DPCustomButtonCard extends HTMLElement {
       </ha-card>
     `;
 
-    // Click triggers
-    this.shadowRoot.getElementById('button-surface').addEventListener('click', (e) => this._handleAction('tap'));
-    this.shadowRoot.getElementById('button-surface').addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      this._handleAction('hold');
-    });
+    // --- Tap vs. Hold Detection ---
+    // Uses a press-duration timer on pointer events rather than the native 'click'/'contextmenu'
+    // events: many touch browsers (notably the HA Companion App's WebView) fire 'contextmenu' on
+    // an ordinary tap, which made every tap behave like a hold. pointerdown/pointerup works
+    // uniformly for mouse and touch.
+    const surface = this.shadowRoot.getElementById('button-surface');
+    const holdTime = Number(config.hold_time ?? 500);
+    let pressTimer = null;
+    let holdFired = false;
+
+    const startPress = () => {
+      holdFired = false;
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(() => {
+        holdFired = true;
+        this._handleAction('hold');
+      }, holdTime);
+    };
+    const endPress = () => {
+      clearTimeout(pressTimer);
+      if (!holdFired) this._handleAction('tap');
+    };
+    const cancelPress = () => {
+      clearTimeout(pressTimer);
+    };
+
+    surface.addEventListener('pointerdown', startPress);
+    surface.addEventListener('pointerup', endPress);
+    surface.addEventListener('pointerleave', cancelPress);
+    surface.addEventListener('pointercancel', cancelPress);
+    surface.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   // --- Dynamic Color Calculators ---

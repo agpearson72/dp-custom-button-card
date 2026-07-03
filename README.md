@@ -119,6 +119,7 @@ By default, fan cards hide the entity picture and state row and show a speed lab
 | `size` | `28px` | Icon/picture size (standard & weather) |
 | `tap_action` | `{ action: 'toggle' }` | Action on tap — dispatched as a standard `hass-action` event |
 | `hold_action` | `{ action: 'more-info' }` | Action on hold |
+| `hold_time` | `500` | Milliseconds the button must be pressed before it counts as a hold instead of a tap |
 | `variables` | *(see below)* | Card-specific variables |
 | `twinkly_effect_map` | *(see below)* | Map of Twinkly effect name → solid glow color |
 | `twinkly_effect_palettes` | *(see below)* | Map of Twinkly effect name → multi-color palette array |
