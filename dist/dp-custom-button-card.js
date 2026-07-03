@@ -2,7 +2,7 @@
  * DP Custom Button Card
  * A high-fidelity, advanced Home Assistant Lovelace card converted from custom:button-card templates.
  * Supports glow filters, complex light color maps (including Twinkly blends), climate/fireplace/fan variants, and dynamic CSS rain animations.
- * v2.0.0
+ * v2.0.2
  */
 
 // Cache of compiled [[[ ]]] template bodies, keyed by source code, shared across all card instances.
@@ -12,6 +12,41 @@ class DPCustomButtonCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
+
+    // --- Tap vs. Hold Detection ---
+    // Bound once on the host element (which survives every re-render), not on the inner
+    // shadow-DOM surface (which render() tears down and rebuilds on every hass update — often
+    // several times a second in a live system, for state changes unrelated to this entity).
+    // Timer/flag state lives on `this` for the same reason: closure variables scoped to a single
+    // render() call would be orphaned by the next render, leaving a stale hold-timer to fire
+    // later even though the button was already released — which looked like every tap
+    // eventually triggering the hold action.
+    this._pressTimer = null;
+    this._holdFired = false;
+    this.addEventListener('pointerdown', () => this._startPress());
+    this.addEventListener('pointerup', () => this._endPress());
+    this.addEventListener('pointerleave', () => this._cancelPress());
+    this.addEventListener('pointercancel', () => this._cancelPress());
+    this.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  _startPress() {
+    this._holdFired = false;
+    clearTimeout(this._pressTimer);
+    const holdTime = Number((this._config && this._config.hold_time) ?? 500);
+    this._pressTimer = setTimeout(() => {
+      this._holdFired = true;
+      this._handleAction('hold');
+    }, holdTime);
+  }
+
+  _endPress() {
+    clearTimeout(this._pressTimer);
+    if (!this._holdFired) this._handleAction('tap');
+  }
+
+  _cancelPress() {
+    clearTimeout(this._pressTimer);
   }
 
   setConfig(config) {
@@ -592,38 +627,6 @@ class DPCustomButtonCard extends HTMLElement {
         ${gridLayout}
       </ha-card>
     `;
-
-    // --- Tap vs. Hold Detection ---
-    // Uses a press-duration timer on pointer events rather than the native 'click'/'contextmenu'
-    // events: many touch browsers (notably the HA Companion App's WebView) fire 'contextmenu' on
-    // an ordinary tap, which made every tap behave like a hold. pointerdown/pointerup works
-    // uniformly for mouse and touch.
-    const surface = this.shadowRoot.getElementById('button-surface');
-    const holdTime = Number(config.hold_time ?? 500);
-    let pressTimer = null;
-    let holdFired = false;
-
-    const startPress = () => {
-      holdFired = false;
-      clearTimeout(pressTimer);
-      pressTimer = setTimeout(() => {
-        holdFired = true;
-        this._handleAction('hold');
-      }, holdTime);
-    };
-    const endPress = () => {
-      clearTimeout(pressTimer);
-      if (!holdFired) this._handleAction('tap');
-    };
-    const cancelPress = () => {
-      clearTimeout(pressTimer);
-    };
-
-    surface.addEventListener('pointerdown', startPress);
-    surface.addEventListener('pointerup', endPress);
-    surface.addEventListener('pointerleave', cancelPress);
-    surface.addEventListener('pointercancel', cancelPress);
-    surface.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   // --- Dynamic Color Calculators ---
