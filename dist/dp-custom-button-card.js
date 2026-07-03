@@ -2,7 +2,7 @@
  * DP Custom Button Card
  * A high-fidelity, advanced Home Assistant Lovelace card converted from custom:button-card templates.
  * Supports glow filters, complex light color maps (including Twinkly blends), climate/fireplace/fan variants, and dynamic CSS rain animations.
- * v2.0.0
+ * v2.0.1
  */
 
 // Cache of compiled [[[ ]]] template bodies, keyed by source code, shared across all card instances.
