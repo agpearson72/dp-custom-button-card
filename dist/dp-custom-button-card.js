@@ -1,7 +1,7 @@
 /**
  * DP Custom Button Card
  * A high-fidelity, advanced Home Assistant Lovelace card converted from custom:button-card templates.
- * Supports glow filters, complex light color maps (including Twinkly blends), climate variants, and dynamic CSS rain animations.
+ * Supports glow filters, complex light color maps (including Twinkly blends), climate/fireplace/fan variants, and dynamic CSS rain animations.
  * v1.2.0
  */
 
@@ -19,7 +19,7 @@ class DPCustomButtonCard extends HTMLElement {
       throw new Error("You must define an entity.");
     }
     this._config = {
-      type: 'standard', // 'standard', 'weather', or 'climate'
+      card_type: 'standard', // 'standard', 'weather', or 'climate' — NOT `type`, which Home Assistant reserves for `custom:dp-custom-button-card`
       aspect_ratio: '1/1',
       size: '28px',
       ...config,
@@ -81,6 +81,40 @@ class DPCustomButtonCard extends HTMLElement {
         off_color: 'rgba(255,255,255,0.04)',
         unavailable_color: '#777',
         bg_tint_alpha: 0.18,
+        // Fireplace defaults
+        fireplace_attr: null,
+        fireplace_high_states: ['high', 'hi', 'max', 'on_high', 'on hi', '3'],
+        fireplace_low_states: ['low', 'lo', 'min', 'on_low', 'on low', '2'],
+        fireplace_noheat_states: ['on', '1'],
+        fireplace_high_color: '#ff3b3b',
+        fireplace_low_color: '#ff3b3b',
+        fireplace_noheat_color: '#ff9900',
+        fireplace_full_glow: true,
+        fireplace_glow_alpha: 0.26,
+        flame_enabled: true,
+        flame_speed: '2.8s',
+        flame_flicker_speed: '1.3s',
+        flame_move_y_min: '0%',
+        flame_move_y_max: '-4%',
+        flame_scale_min: 1,
+        flame_scale_max: 0.95,
+        flame_flicker_min: 0.92,
+        flame_flicker_max: 1.08,
+        // Fan defaults
+        fan_control_entity: false,
+        fan_on_color: 'rgb(34,197,94)',
+        fan_off_color: 'var(--secondary-text-color)',
+        fan_unavailable_color: 'rgb(255,0,0)',
+        fan_speed_labels: { 33: 'Low', 66: 'Medium', 100: 'High' },
+        fan_spin_low: '2.3s',
+        fan_spin_med: '1.2s',
+        fan_spin_high: '.5s',
+        fan_low_threshold: 33,
+        fan_med_threshold: 66,
+        fan_value_attr: 'auto',
+        fan_glow_color: '#22c55e',
+        fan_glow_alpha: 0.3,
+        fan_glow_full: false,
         ...(config.variables || {})
       },
       twinkly_effect_map: {
@@ -119,7 +153,7 @@ class DPCustomButtonCard extends HTMLElement {
     const entityId = this._config.entity;
     const entity = entityId ? hass.states[entityId] : null;
 
-    if (entityId && !entity && this._config.type !== 'weather') {
+    if (entityId && !entity && this._config.card_type !== 'weather') {
       this.shadowRoot.innerHTML = `<ha-card style="color: red; padding: 16px;">Entity not found: ${entityId}</ha-card>`;
       return;
     }
@@ -177,6 +211,7 @@ class DPCustomButtonCard extends HTMLElement {
   }
 
   render(entity, states, hass) {
+    this._entity = entity;
     const rawConfig = this._config;
     const ctx = { entity, states, hass, variables: rawConfig.variables, user: hass && hass.user, config: rawConfig };
     const config = this._resolveTemplates(rawConfig, ctx);
@@ -213,14 +248,15 @@ class DPCustomButtonCard extends HTMLElement {
     }
 
     // --- Determine Image Source (Manual vs Home Assistant Entity Picture Layouts) ---
-    const wantPicture = (config.show_entity_picture === undefined) ? true : !!config.show_entity_picture;
+    const defaultShowPicture = config.card_type !== 'fan';
+    const wantPicture = (config.show_entity_picture === undefined) ? defaultShowPicture : !!config.show_entity_picture;
     const resolvedPicture = wantPicture
       ? (config.entity_picture || vars.picture || targetAttrs.entity_picture || null)
       : null;
 
     // --- Determine Icon ---
-    let icon = 'mdi:lightbulb';
-    if (config.type === 'weather') {
+    let icon = config.card_type === 'fireplace' ? 'mdi:fire' : config.card_type === 'fan' ? 'mdi:fan' : 'mdi:lightbulb';
+    if (config.card_type === 'weather') {
       icon = this._getWeatherIcon(entity, states, vars);
     } else if (config.icon) {
       icon = config.icon;
@@ -237,7 +273,8 @@ class DPCustomButtonCard extends HTMLElement {
 
     // --- Determine Icon Color ---
     let iconColor = 'var(--secondary-text-color)';
-    if (config.type === 'climate') {
+    const fireplaceInfo = this._getFireplaceLevel(entity, vars);
+    if (config.card_type === 'climate') {
       const hvacAction = String(targetAttrs.hvac_action || '').toLowerCase();
       const hvacMode = String(targetAttrs.hvac_mode || stateStr || '').toLowerCase();
       const combined = hvacAction || hvacMode;
@@ -246,6 +283,12 @@ class DPCustomButtonCard extends HTMLElement {
       else if (combined.includes('auto')) iconColor = vars.auto_color;
       else if (combined.includes('fan')) iconColor = vars.fan_color;
       else if (combined.includes('dry')) iconColor = vars.dry_color;
+    } else if (config.card_type === 'fireplace') {
+      if (fireplaceInfo.level) iconColor = fireplaceInfo.color;
+    } else if (config.card_type === 'fan') {
+      if (stateStr === 'unavailable') iconColor = vars.fan_unavailable_color;
+      else if (stateStr === 'on') iconColor = vars.fan_on_color;
+      else iconColor = vars.fan_off_color;
     } else if (active || stateStr === 'on') {
       if (vars.icon_color_matches_light === false) {
         iconColor = 'inherit';
@@ -256,7 +299,7 @@ class DPCustomButtonCard extends HTMLElement {
 
     // --- Subtitle / Label Logic ---
     let subtitleText = '';
-    if (config.type === 'climate') {
+    if (config.card_type === 'climate') {
       // Logic for footers/subtitles handled structurally
     } else {
       if (vars.subtitle) subtitleText = vars.subtitle;
@@ -278,7 +321,7 @@ class DPCustomButtonCard extends HTMLElement {
     let cardBackground = 'var(--ha-card-background, var(--card-background-color))';
     let cardBorder = '1px solid rgba(255,255,255,0.06)';
 
-    if (config.type === 'climate') {
+    if (config.card_type === 'climate') {
       const hvacAction = String(targetAttrs.hvac_action || '').toLowerCase();
       const hvacMode = String(targetAttrs.hvac_mode || stateStr || '').toLowerCase();
       const s = hvacAction || hvacMode;
@@ -305,7 +348,12 @@ class DPCustomButtonCard extends HTMLElement {
     // --- Core Dynamic Layers (Glows & Special Effects) ---
     const underGlowStyle = this._computeUnderGlow(targetAttrs, vars, config, active);
     const glowStyle = this._computeGlow(entity, targetAttrs, vars, config, stateStr);
-    const weatherRainMarkup = (config.type === 'weather') ? this._getWeatherRain(vars, states) : '';
+    const weatherRainMarkup = (config.card_type === 'weather') ? this._getWeatherRain(vars, states) : '';
+    const fireplaceGlowStyle = (config.card_type === 'fireplace') ? this._computeFireplaceGlow(fireplaceInfo, vars) : null;
+    const flameAnimation = (config.card_type === 'fireplace') ? this._getFlameAnimation(vars) : 'none';
+    const fanGlowStyle = (config.card_type === 'fan') ? this._computeFanGlow(stateStr, vars) : null;
+    const fanSpinAnimation = (config.card_type === 'fan') ? this._getFanSpinAnimation(stateStr, targetAttrs, vars) : 'none';
+    const fanLabelText = (config.card_type === 'fan') ? this._getFanLabel(targetAttrs, vars) : '';
 
     // --- CSS Position Translation ---
     let flexAlignment = 'center';
@@ -314,7 +362,7 @@ class DPCustomButtonCard extends HTMLElement {
 
     // --- Compose HTML Grid layouts ---
     let gridLayout = '';
-    if (config.type === 'climate') {
+    if (config.card_type === 'climate') {
       let curTemp = targetAttrs.current_temperature || '--';
       if (vars.ambient_sensor && states[vars.ambient_sensor]) {
         curTemp = states[vars.ambient_sensor].state;
@@ -342,8 +390,13 @@ class DPCustomButtonCard extends HTMLElement {
         </div>
       `;
     } else {
-      const stateHidden = (config.show_state === false) ? 'display:none;' : '';
-      const labelHidden = (config.show_label === false || !config.label) ? 'display:none;' : '';
+      const defaultShowState = config.card_type !== 'fan';
+      const showState = (config.show_state === undefined) ? defaultShowState : config.show_state !== false;
+      const stateHidden = showState ? '' : 'display:none;';
+      let effectiveLabel = config.label;
+      if (!effectiveLabel && config.card_type === 'fireplace') effectiveLabel = fireplaceInfo.label;
+      if (!effectiveLabel && config.card_type === 'fan') effectiveLabel = fanLabelText;
+      const labelHidden = (config.show_label === false || !effectiveLabel) ? 'display:none;' : '';
       gridLayout = `
         <div class="grid-container standard">
           <div class="icon-area" style="${styleImgCell}">
@@ -352,7 +405,7 @@ class DPCustomButtonCard extends HTMLElement {
           <div class="badge-area" style="${styleBadge}">${vars.badge ? `<span>${vars.badge}</span>` : ''}</div>
           <div class="name-area" style="${styleName}">${config.name || (entity ? entity.attributes.friendly_name : 'Button')}</div>
           <div class="state-area" style="${stateHidden}${styleState}">${subtitleText}</div>
-          <div class="label-area" style="${labelHidden}${styleLabel}">${config.label || ''}</div>
+          <div class="label-area" style="${labelHidden}${styleLabel}">${effectiveLabel || ''}</div>
           <div class="indicator-area" style="${vars.show_state_dot ? '' : 'display:none;'}"></div>
         </div>
       `;
@@ -419,9 +472,10 @@ class DPCustomButtonCard extends HTMLElement {
           object-fit: cover;
         }
         ha-icon {
-          --mdc-icon-size: ${config.type === 'climate' ? vars.icon_size_css : config.size};
+          --mdc-icon-size: ${config.card_type === 'climate' ? vars.icon_size_css : config.size};
           color: ${iconColor};
           filter: ${active ? 'drop-shadow(0 6px 10px rgba(0,0,0,0.35))' : 'none'};
+          animation: ${fanSpinAnimation};
         }
         .badge-area {
           grid-area: badge; align-self: start; justify-self: end;
@@ -462,6 +516,40 @@ class DPCustomButtonCard extends HTMLElement {
         .glow-layer {
           background: ${glowStyle.bg}; opacity: ${glowStyle.opacity}; transition: opacity 0.25s ease;
         }
+        .fireplace-glow-layer {
+          mix-blend-mode: screen; transform-origin: 50% 90%; will-change: transform, filter;
+          transition: opacity 0.25s ease;
+          background: ${fireplaceGlowStyle ? fireplaceGlowStyle.bg : 'transparent'};
+          opacity: ${fireplaceGlowStyle ? fireplaceGlowStyle.opacity : 0};
+          animation: ${flameAnimation};
+          --rb-mvy0: ${vars.flame_move_y_min};
+          --rb-mvy1: ${vars.flame_move_y_max};
+          --rb-scy0: ${vars.flame_scale_min};
+          --rb-scy1: ${vars.flame_scale_max};
+          --rb-fk-min: ${vars.flame_flicker_min};
+          --rb-fk-max: ${vars.flame_flicker_max};
+        }
+        .fan-glow-layer {
+          transition: opacity 0.2s ease;
+          background: ${fanGlowStyle ? fanGlowStyle.bg : 'transparent'};
+          opacity: ${fanGlowStyle ? fanGlowStyle.opacity : 0};
+        }
+        @keyframes rb_flame_move {
+          0%   { transform: translateY(var(--rb-mvy0)) scaleY(var(--rb-scy0)); }
+          100% { transform: translateY(var(--rb-mvy1)) scaleY(var(--rb-scy1)); }
+        }
+        @keyframes rb_flame_flicker {
+          0%   { filter: brightness(var(--rb-fk-min)); }
+          25%  { filter: brightness(var(--rb-fk-max)); }
+          47%  { filter: brightness(var(--rb-fk-min)); }
+          62%  { filter: brightness(var(--rb-fk-max)); }
+          78%  { filter: brightness(var(--rb-fk-min)); }
+          100% { filter: brightness(1); }
+        }
+        @keyframes rotating {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
 
         /* Rain Animation Overlay Engine */
         .rb-rain { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; overflow: hidden; z-index: 0; }
@@ -497,7 +585,9 @@ class DPCustomButtonCard extends HTMLElement {
       <ha-card id="button-surface" style="--rb-rain-color: ${vars.weather_rain_color};${styleCard}">
         <div class="layer gloss-layer"></div>
         <div class="layer underglow-layer"></div>
-        <div class="layer glow-layer" style="${config.type === 'weather' && vars.weather_disable_base_glow ? 'display:none;opacity:0;' : ''}"></div>
+        <div class="layer glow-layer" style="${config.card_type === 'weather' && vars.weather_disable_base_glow ? 'display:none;opacity:0;' : ''}"></div>
+        ${config.card_type === 'fireplace' ? '<div class="layer fireplace-glow-layer"></div>' : ''}
+        ${config.card_type === 'fan' ? '<div class="layer fan-glow-layer"></div>' : ''}
         ${weatherRainMarkup}
         ${gridLayout}
       </ha-card>
@@ -603,6 +693,114 @@ class DPCustomButtonCard extends HTMLElement {
     return { bg: makeGrad(String(vars.accent)), opacity: 1 };
   }
 
+  // --- Fireplace Level Resolver ---
+  _getFireplaceLevel(entity, vars) {
+    const attrs = (entity && entity.attributes) || {};
+    let v;
+    if (vars.fireplace_attr && attrs[vars.fireplace_attr] != null) v = attrs[vars.fireplace_attr];
+    else if (attrs.preset_mode != null) v = attrs.preset_mode;
+    else if (attrs.flame != null) v = attrs.flame;
+    else if (attrs.level != null) v = attrs.level;
+    else v = (entity && entity.state) || '';
+    v = String(v).toLowerCase();
+
+    const hi = (vars.fireplace_high_states || []).map((x) => String(x).toLowerCase());
+    const lo = (vars.fireplace_low_states || []).map((x) => String(x).toLowerCase());
+    const noheat = (vars.fireplace_noheat_states || []).map((x) => String(x).toLowerCase());
+
+    if (hi.includes(v)) return { level: 'high', color: vars.fireplace_high_color || '#ff3b3b', label: 'High' };
+    if (lo.includes(v)) return { level: 'low', color: vars.fireplace_low_color || '#ff3b3b', label: 'Low' };
+    if (noheat.includes(v)) return { level: 'noheat', color: vars.fireplace_noheat_color || '#ff9900', label: 'No Heat' };
+    return { level: null, color: null, label: '' };
+  }
+
+  _computeFireplaceGlow(fireplaceInfo, vars) {
+    if (!fireplaceInfo.level) return { bg: 'transparent', opacity: 0 };
+    const col = fireplaceInfo.color;
+    const radial = `radial-gradient(120% 95% at 50% 88%, ${col}88, transparent 62%)`;
+    const full = (vars.fireplace_full_glow === true || String(vars.fireplace_full_glow) === 'true');
+    if (full) {
+      const alpha = Math.max(0, Math.min(1, Number(vars.fireplace_glow_alpha ?? 0.26)));
+      const ah = Math.round(alpha * 255).toString(16).padStart(2, '0');
+      const lin = (col.startsWith('#') && col.length === 7)
+        ? `linear-gradient(0deg, ${col}${ah}, ${col}${ah})`
+        : `linear-gradient(0deg, ${col}, ${col})`;
+      return { bg: `${radial}, ${lin}`, opacity: 1 };
+    }
+    return { bg: radial, opacity: 1 };
+  }
+
+  _getFlameAnimation(vars) {
+    if (!(vars.flame_enabled === true || String(vars.flame_enabled) === 'true')) return 'none';
+    const mv = `rb_flame_move ${vars.flame_speed || '2.8s'} ease-in-out infinite alternate`;
+    const fk = `rb_flame_flicker ${vars.flame_flicker_speed || '1.3s'} linear infinite`;
+    return `${mv}, ${fk}`;
+  }
+
+  // --- Fan Speed Resolver ---
+  _getFanPercentage(attrs, vars) {
+    const fromWord = (s) => {
+      s = String(s || '').toLowerCase();
+      if (s === 'off') return 0;
+      if (s === 'low') return 33;
+      if (s === 'medium' || s === 'med') return 66;
+      if (s === 'high' || s === 'max') return 100;
+      return NaN;
+    };
+    const mode = String(vars.fan_value_attr || 'auto');
+    if (mode === 'percentage') return Number(attrs.percentage);
+    if (mode === 'speed') return fromWord(attrs.speed);
+    if (mode === 'preset_mode') return fromWord(attrs.preset_mode);
+
+    const p = Number(attrs.percentage);
+    if (!isNaN(p)) return p;
+    const bySpeed = fromWord(attrs.speed);
+    if (!isNaN(bySpeed)) return bySpeed;
+    return fromWord(attrs.preset_mode);
+  }
+
+  _getFanLabel(attrs, vars) {
+    const p = this._getFanPercentage(attrs, vars);
+    if (isNaN(p)) return '—';
+    if (p <= 0) return '';
+    const map = vars.fan_speed_labels || {};
+    const mapped = map[String(p)];
+    return mapped ? mapped : `${p}%`;
+  }
+
+  _getFanSpinAnimation(stateStr, attrs, vars) {
+    if (stateStr !== 'on') return 'none';
+    const p = this._getFanPercentage(attrs, vars);
+    if (isNaN(p) || p <= 0) return 'none';
+    const medT = Number(vars.fan_med_threshold ?? 66);
+    if (p >= 100) return `rotating ${vars.fan_spin_high || '.5s'} linear infinite`;
+    if (p >= medT) return `rotating ${vars.fan_spin_med || '1.2s'} linear infinite`;
+    return `rotating ${vars.fan_spin_low || '2.3s'} linear infinite`;
+  }
+
+  _computeFanGlow(stateStr, vars) {
+    if (stateStr !== 'on') return { bg: 'transparent', opacity: 0 };
+    const col = String(vars.fan_glow_color || '#22c55e').trim();
+    const alpha = Math.max(0, Math.min(1, Number(vars.fan_glow_alpha ?? 0.3)));
+    const paint = this._withAlpha(col, alpha);
+    return { bg: `radial-gradient(120% 90% at 50% 88%, ${paint}, transparent 65%)`, opacity: 1 };
+  }
+
+  _withAlpha(c, alpha) {
+    if (c.startsWith('rgba(') || c.startsWith('hsla(')) return c;
+    let m;
+    if ((m = c.match(/^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/))) return `rgba(${m[1]},${m[2]},${m[3]},${alpha})`;
+    if ((m = c.match(/^hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)$/))) return `hsla(${m[1]},${m[2]}%,${m[3]}%,${alpha})`;
+    if (c[0] === '#') {
+      let h = c.slice(1);
+      if (h.length === 3) h = h.split('').map((x) => x + x).join('');
+      const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+    const pct = Math.round(alpha * 100);
+    return `color-mix(in srgb, ${c} ${pct}%, transparent)`;
+  }
+
   // --- Rain Generator Overlay Engine ---
   _getWeatherRain(vars, states) {
     const checkActive = () => {
@@ -674,7 +872,12 @@ class DPCustomButtonCard extends HTMLElement {
 
   // --- Home Assistant Action Router Dispatcher ---
   _handleAction(type) {
-    const actionCfg = type === 'tap' ? this._config.tap_action : this._config.hold_action;
+    let actionCfg = type === 'tap' ? this._config.tap_action : this._config.hold_action;
+    if (!actionCfg && type === 'tap' && this._config.card_type === 'fan') {
+      const vars = this._config.variables || {};
+      const targetEntityId = vars.fan_control_entity || (this._entity && this._entity.entity_id);
+      actionCfg = { action: 'call-service', service: 'fan.toggle', service_data: { entity_id: targetEntityId } };
+    }
     const action = actionCfg?.action || (type === 'tap' ? 'toggle' : 'more-info');
     
     // Trigger standard haptics feedback if configured
