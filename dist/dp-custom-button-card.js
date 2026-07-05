@@ -54,7 +54,7 @@ class DPCustomButtonCard extends HTMLElement {
       throw new Error("You must define an entity.");
     }
     this._config = {
-      card_type: 'standard', // 'standard', 'weather', or 'climate' — NOT `type`, which Home Assistant reserves for `custom:dp-custom-button-card`
+      card_type: 'standard', // 'standard', 'weather', 'climate', 'fireplace', or 'fan' — NOT `type`, which Home Assistant reserves for `custom:dp-custom-button-card`
       aspect_ratio: '1/1',
       size: '28px',
       ...config,
