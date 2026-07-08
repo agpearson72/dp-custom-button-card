@@ -2,11 +2,8 @@
  * DP Custom Button Card
  * A high-fidelity, advanced Home Assistant Lovelace card converted from custom:button-card templates.
  * Supports glow filters, complex light color maps (including Twinkly blends), climate/fireplace/fan variants, and dynamic CSS rain animations.
- * v2.0.5
+ * v2.0.6
  */
-
-console.log('%c[DP-BUTTON-CARD] FILE LOADED AND EXECUTING - v2.0.2-debug', 'background: #222; color: #0f0; font-size: 14px; padding: 4px;');
-alert('DP-BUTTON-CARD script file is executing');
 
 // Cache of compiled [[[ ]]] template bodies, keyed by source code, shared across all card instances.
 const _templateFnCache = new Map();
@@ -14,7 +11,6 @@ const _templateFnCache = new Map();
 class DPCustomButtonCard extends HTMLElement {
   constructor() {
     super();
-    console.log('[DP-BUTTON-CARD] constructor() called - element is being instantiated');
     this.attachShadow({ mode: 'open' });
 
     // --- Tap vs. Hold Detection ---
@@ -37,61 +33,23 @@ class DPCustomButtonCard extends HTMLElement {
   _startPress() {
     this._holdFired = false;
     clearTimeout(this._pressTimer);
-    const rawHoldTime = this._config && this._config.hold_time;
-    const holdTime = Number(rawHoldTime ?? 500);
-    this._pressStartedAt = performance.now();
-    console.log(
-      '[DP-BUTTON-CARD] pointerdown -> arming press timer',
-      {
-        entity: this._config && this._config.entity,
-        raw_hold_time_config: rawHoldTime,
-        resolved_hold_time_ms: holdTime,
-        is_NaN: Number.isNaN(holdTime),
-        timer_id_before: this._pressTimer
-      }
-    );
+    const holdTime = Number((this._config && this._config.hold_time) ?? 500);
     this._pressTimer = setTimeout(() => {
-      const elapsed = performance.now() - this._pressStartedAt;
       this._holdFired = true;
-      console.log(
-        '[DP-BUTTON-CARD] HOLD TIMER FIRED',
-        { entity: this._config && this._config.entity, elapsed_ms: elapsed.toFixed(1), scheduled_for_ms: holdTime }
-      );
       this._handleAction('hold');
     }, holdTime);
-    console.log('[DP-BUTTON-CARD] new timer id:', this._pressTimer);
   }
 
   _endPress() {
-    const elapsed = this._pressStartedAt != null ? performance.now() - this._pressStartedAt : null;
-    console.log(
-      '[DP-BUTTON-CARD] pointerup',
-      {
-        entity: this._config && this._config.entity,
-        elapsed_ms: elapsed != null ? elapsed.toFixed(1) : null,
-        holdFired_before_clear: this._holdFired,
-        clearing_timer_id: this._pressTimer
-      }
-    );
     clearTimeout(this._pressTimer);
-    if (!this._holdFired) {
-      console.log('[DP-BUTTON-CARD] -> dispatching TAP');
-      this._handleAction('tap');
-    } else {
-      console.log('[DP-BUTTON-CARD] -> skipping tap, hold already fired');
-    }
+    if (!this._holdFired) this._handleAction('tap');
   }
 
   _cancelPress() {
-    console.log(
-      '[DP-BUTTON-CARD] pointer cancel/leave -> clearing timer',
-      { entity: this._config && this._config.entity, holdFired: this._holdFired, timer_id: this._pressTimer }
-    );
     clearTimeout(this._pressTimer);
   }
 
   setConfig(config) {
-    console.log('[DP-BUTTON-CARD] setConfig() called', config);
     if (!config.entity && !config.weather_condition_entity) {
       throw new Error("You must define an entity.");
     }
@@ -942,12 +900,6 @@ class DPCustomButtonCard extends HTMLElement {
 
   // --- Home Assistant Action Router Dispatcher ---
   _handleAction(type) {
-    console.log('[DP-BUTTON-CARD] _handleAction called with type =', type, {
-      entity: this._config && this._config.entity,
-      configured_tap_action: this._config.tap_action,
-      configured_hold_action: this._config.hold_action
-    });
-
     let actionCfg = type === 'tap' ? this._config.tap_action : this._config.hold_action;
     if (!actionCfg && type === 'tap' && this._config.card_type === 'fan') {
       const vars = this._config.variables || {};
@@ -955,8 +907,6 @@ class DPCustomButtonCard extends HTMLElement {
       actionCfg = { action: 'call-service', service: 'fan.toggle', service_data: { entity_id: targetEntityId } };
     }
     const action = actionCfg?.action || (type === 'tap' ? 'toggle' : 'more-info');
-
-    console.log('[DP-BUTTON-CARD] _handleAction resolved action =', action, { type, actionCfg });
 
     // Trigger standard haptics feedback if configured
     const hapticType = actionCfg?.haptic || (type === 'tap' ? 'light' : 'medium');
@@ -973,7 +923,6 @@ class DPCustomButtonCard extends HTMLElement {
       bubbles: true,
       composed: true
     });
-    console.log('[DP-BUTTON-CARD] dispatching hass-action event', { type, resolved_action_for_reference: action });
     this.dispatchEvent(event);
   }
 
