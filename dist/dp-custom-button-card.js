@@ -2,7 +2,7 @@
  * DP Custom Button Card
  * A high-fidelity, advanced Home Assistant Lovelace card converted from custom:button-card templates.
  * Supports glow filters, complex light color maps (including Twinkly blends), climate/fireplace/fan variants, and dynamic CSS rain animations.
- * v2.0.4
+ * v2.0.5
  */
 
 console.log('%c[DP-BUTTON-CARD] FILE LOADED AND EXECUTING - v2.0.2-debug', 'background: #222; color: #0f0; font-size: 14px; padding: 4px;');
@@ -38,7 +38,7 @@ class DPCustomButtonCard extends HTMLElement {
     this._holdFired = false;
     clearTimeout(this._pressTimer);
     const rawHoldTime = this._config && this._config.hold_time;
-    const holdTime = Number(rawHoldTime ?? 1000);
+    const holdTime = Number(rawHoldTime ?? 500);
     this._pressStartedAt = performance.now();
     console.log(
       '[DP-BUTTON-CARD] pointerdown -> arming press timer',
