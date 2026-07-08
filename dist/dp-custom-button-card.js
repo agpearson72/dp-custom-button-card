@@ -2,8 +2,11 @@
  * DP Custom Button Card
  * A high-fidelity, advanced Home Assistant Lovelace card converted from custom:button-card templates.
  * Supports glow filters, complex light color maps (including Twinkly blends), climate/fireplace/fan variants, and dynamic CSS rain animations.
- * v2.0.3
+ * v2.0.4
  */
+
+console.log('%c[DP-BUTTON-CARD] FILE LOADED AND EXECUTING - v2.0.2-debug', 'background: #222; color: #0f0; font-size: 14px; padding: 4px;');
+alert('DP-BUTTON-CARD script file is executing');
 
 // Cache of compiled [[[ ]]] template bodies, keyed by source code, shared across all card instances.
 const _templateFnCache = new Map();
@@ -11,6 +14,7 @@ const _templateFnCache = new Map();
 class DPCustomButtonCard extends HTMLElement {
   constructor() {
     super();
+    console.log('[DP-BUTTON-CARD] constructor() called - element is being instantiated');
     this.attachShadow({ mode: 'open' });
 
     // --- Tap vs. Hold Detection ---
@@ -87,6 +91,7 @@ class DPCustomButtonCard extends HTMLElement {
   }
 
   setConfig(config) {
+    console.log('[DP-BUTTON-CARD] setConfig() called', config);
     if (!config.entity && !config.weather_condition_entity) {
       throw new Error("You must define an entity.");
     }
@@ -963,12 +968,12 @@ class DPCustomButtonCard extends HTMLElement {
     const event = new CustomEvent('hass-action', {
       detail: {
         config: this._config,
-        action: action
+        action: type
       },
       bubbles: true,
       composed: true
     });
-    console.log('[DP-BUTTON-CARD] dispatching hass-action event', { type, action });
+    console.log('[DP-BUTTON-CARD] dispatching hass-action event', { type, resolved_action_for_reference: action });
     this.dispatchEvent(event);
   }
 
